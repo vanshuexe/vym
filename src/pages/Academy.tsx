@@ -1,67 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { AnimatedSection } from '../components/ui/AnimatedSection';
 import { SEO } from '../components/SEO';
 import { Button } from '../components/ui/Button';
+import { programmeDuration } from '../data/academyCatalog';
+import { useAcademy } from '../components/CMSContext';
 import { Calendar, Clock, ArrowRight, MousePointer2, CreditCard, Terminal, Briefcase, GraduationCap, CheckCircle2, ShieldCheck, Target, Trophy, Laptop, MessageSquare, Star } from 'lucide-react';
 
+const inr = (n: number) => '₹' + n.toLocaleString('en-IN');
+
 export function Academy() {
-  const defaultPrograms = [
-    {
-      id: 'one-day',
-      title: 'One-day workshop',
-      desc: 'A focused 3 to 4 hour introduction to the world of AI evaluation.',
-      duration: '3-4 hours',
-      price: 'INR 2,499',
-      originalPrice: 'INR 4,999',
-      offerLabel: 'Introductory offer · 50% off',
-      date: 'Starts soon',
-      tracks: ['Business track', 'Technology track'],
-      highlights: ['Intensive crash course', 'Practical intro to evaluation']
-    },
-    {
-      id: 'demo',
-      title: 'Demo workshop',
-      desc: 'Pay small for the trial session before your bootcamp.',
-      duration: '1-2 hours',
-      price: 'INR 999',
-      date: 'Rolling admissions',
-      tracks: ['General intro'],
-      highlights: ['Sneak peek into the bootcamp', 'Try before you commit']
-    },
-    {
-      id: 'bootcamp',
-      title: 'Four to five week bootcamp',
-      desc: 'Applied training with live work and a comprehensive capstone project.',
-      duration: '4-5 weeks',
-      price: 'INR 45,000',
-      date: 'Enrolling now',
-      tracks: ['Business track', 'Technology track'],
-      highlights: ['Live production work', 'Comprehensive capstone project', 'Pathway to paid roles']
-    },
-    {
-      id: 'advanced',
-      title: 'Advanced workshop',
-      desc: 'For working professionals, QA and DevOps who already know the basics.',
-      duration: '2 days',
-      price: 'INR 18,500',
-      date: 'TBD',
-      tracks: ['Technology track'],
-      highlights: ['Advanced EvalOps', 'CI/CD Integration', 'Automated red-teaming']
-    }
-  ];
-
-  // null until the CMS answers, so visitors never see stale built-in prices flash before the admin's prices.
-  const [academyPrograms, setAcademyPrograms] = useState<any[] | null>(null);
-
-  useEffect(() => {
-    fetch('/api/cms/data')
-      .then(res => res.json())
-      .then(data => setAcademyPrograms(data?.courses?.length > 0 ? data.courses : defaultPrograms))
-      .catch(err => {
-        console.error(err);
-        setAcademyPrograms(defaultPrograms);
-      });
-  }, []);
+  const academy = useAcademy();
 
   return (
     <div className="w-full">
@@ -86,7 +34,7 @@ export function Academy() {
               Hands-on programs in AI evaluation, prompt engineering and quality assurance, taught on real work, with a pathway into paid roles for top performers.
             </p>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-              <Button to="/checkout" className="!bg-white !text-primary hover:!bg-silver-light shadow-xl font-bold px-10 py-4 text-lg">
+              <Button to="/register" className="!bg-white !text-primary hover:!bg-silver-light shadow-xl font-bold px-10 py-4 text-lg">
                 Enrol now
               </Button>
               <Button to="/contact?interest=academy" variant="ghost" className="!bg-transparent !border !border-white/30 !text-white hover:!bg-white/10 px-8 py-4 flex items-center gap-2 font-bold">
@@ -133,77 +81,72 @@ export function Academy() {
             <p className="text-ink/70 text-lg max-w-2xl">Select a program to view details and begin your enrolment.</p>
           </AnimatedSection>
 
-          <div className="grid md:grid-cols-2 gap-8">
-            {!academyPrograms && (
-              <div className="md:col-span-2 py-16 text-center text-ink/50 font-medium animate-pulse">Loading programs...</div>
-            )}
-            {(academyPrograms || []).map((program, idx) => (
-              <AnimatedSection key={idx} delay={idx * 0.1}>
-                <div className="flex flex-col h-full bg-white border border-silver/30 rounded-sm hover:border-primary/50 transition-colors shadow-sm hover:shadow-lg overflow-hidden group">
-                  <div className="p-8 flex-1">
-                    <h3 className="text-2xl font-bold text-ink font-heading mb-4 group-hover:text-primary transition-colors">{program.title}</h3>
-                    <p className="text-ink/80 text-base mb-8 min-h-[50px] leading-relaxed">{program.desc}</p>
-                    
-                    <div className="grid grid-cols-2 gap-4 mb-8">
-                      <div className="bg-silver-light/50 p-4 rounded-sm border border-silver/10 flex flex-col justify-center">
-                        <div className="flex items-center gap-2 text-primary mb-1">
-                          <Clock size={16} /> <span className="text-xs font-bold uppercase tracking-wider">Duration</span>
+          <div className="grid md:grid-cols-3 gap-8">
+            {academy.programmes.map((p, idx) => {
+              const allLevels = p.levels.reduce((sum, l) => sum + l.price, 0);
+              const allLevelsStd = p.levels.reduce((sum, l) => sum + l.std, 0);
+              const from = p.single ? p.price : Math.min(...p.levels.map(l => l.price));
+              return (
+                <AnimatedSection key={p.id} delay={idx * 0.1}>
+                  <div className="flex flex-col h-full bg-white border border-silver/30 rounded-sm hover:border-primary/50 transition-colors shadow-sm hover:shadow-lg overflow-hidden group">
+                    <div className="p-8 flex-1">
+                      {p.tag && <div className="font-mono text-[11px] font-bold tracking-widest text-primary mb-2">{p.tag}</div>}
+                      <h3 className="text-2xl font-bold text-ink font-heading mb-3 group-hover:text-primary transition-colors">{p.name}</h3>
+                      {p.line && <p className="text-ink font-semibold text-base mb-2 leading-snug">{p.line}</p>}
+                      <p className="text-ink/70 text-sm mb-8 leading-relaxed">{p.who}</p>
+
+                      <div className="grid grid-cols-2 gap-4 mb-8">
+                        <div className="bg-silver-light/50 p-4 rounded-sm border border-silver/10 flex flex-col justify-center">
+                          <div className="flex items-center gap-2 text-primary mb-1">
+                            <Clock size={16} /> <span className="text-xs font-bold uppercase tracking-wider">Duration</span>
+                          </div>
+                          <span className="text-ink font-medium text-sm">{programmeDuration(p) || '—'}</span>
                         </div>
-                        <span className="text-ink font-medium">{program.duration}</span>
+                        <div className="bg-silver-light/50 p-4 rounded-sm border border-silver/10 flex flex-col justify-center">
+                          <div className="flex items-center gap-2 text-primary mb-1">
+                            <Calendar size={16} /> <span className="text-xs font-bold uppercase tracking-wider">Next Start</span>
+                          </div>
+                          <span className="text-ink font-medium text-sm">{academy.page.cohortText}</span>
+                        </div>
                       </div>
-                      <div className="bg-silver-light/50 p-4 rounded-sm border border-silver/10 flex flex-col justify-center">
-                        <div className="flex items-center gap-2 text-primary mb-1">
-                          <Calendar size={16} /> <span className="text-xs font-bold uppercase tracking-wider">Next Start</span>
+
+                      <div>
+                        <div className="text-xs font-bold tracking-widest text-silver uppercase mb-4 flex items-center gap-2">
+                          <Star size={14} className="text-primary"/> Available Tracks
                         </div>
-                        <span className="text-ink font-medium">{program.date}</span>
+                        <div className="flex flex-wrap gap-2">
+                          {p.tracks.map(track => (
+                            <span key={track} className="px-4 py-2 bg-silver-light/80 border border-silver/20 text-sm font-medium text-ink rounded-sm flex items-center gap-2">
+                              <CheckCircle2 size={14} className="text-primary" /> {track}
+                            </span>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="mb-8">
-                      <div className="text-xs font-bold tracking-widest text-silver uppercase mb-4 flex items-center gap-2">
-                        <Star size={14} className="text-primary"/> Available Tracks
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {program.tracks.map((track: string) => (
-                          <span key={track} className="px-4 py-2 bg-silver-light/80 border border-silver/20 text-sm font-medium text-ink rounded-sm flex items-center gap-2">
-                            <CheckCircle2 size={14} className="text-primary" /> {track}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="p-8 border-t border-silver/10 flex flex-col sm:flex-row items-start sm:items-center justify-between bg-silver-light/20 gap-6">
-                    <div>
-                      <div className="text-xs text-silver mb-1 uppercase tracking-wider font-bold">Tuition Investment</div>
-                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                        {program.originalPrice && (
-                          <span className="text-base font-medium text-silver line-through">
-                            {program.originalPrice}
-                          </span>
-                        )}
-                        <span className="text-3xl font-bold text-ink">{program.price}</span>
-                      </div>
-                      {program.offerLabel && (
-                        <div className="mt-1 text-sm font-semibold text-primary">
-                          {program.offerLabel}
+                    <div className="p-8 border-t border-silver/10 flex flex-col items-start justify-between bg-silver-light/20 gap-6">
+                      <div>
+                        <div className="text-xs text-silver mb-1 uppercase tracking-wider font-bold">Tuition Investment</div>
+                        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                          {p.single && p.std > p.price && <span className="text-base font-medium text-silver line-through">{inr(p.std)}</span>}
+                          <span className="text-3xl font-bold text-ink">{p.single ? '' : 'From '}{inr(from)}</span>
+                          {academy.gstRate > 0 && <span className="text-sm text-ink/60">+ {academy.gstRate}% GST</span>}
                         </div>
-                      )}
-                    </div>
-                    {/* Route to actual checkout integration */}
-                    {program.sessionsClosed ? (
-                      <span className="w-full sm:w-auto px-8 py-3 text-center text-sm font-bold text-ink/50 border border-silver/30 rounded-sm">
-                        New dates coming soon
-                      </span>
-                    ) : (
-                      <Button to={`/checkout?program=${program.id}`} variant="primary" className="shadow-md shadow-primary/20 w-full sm:w-auto px-8 py-3">
+                        {!p.single && p.levels.length > 1 && (
+                          <div className="mt-1 text-sm font-semibold text-primary">
+                            All {p.levels.length} levels {inr(allLevels)} {allLevelsStd > allLevels && <span className="font-normal text-silver line-through">{inr(allLevelsStd)}</span>}
+                          </div>
+                        )}
+                        {p.cardNote && <div className="mt-1 text-xs text-ink/60">{p.cardNote}</div>}
+                      </div>
+                      <Button to={`/register?programme=${encodeURIComponent(p.id)}`} variant="primary" className="shadow-md shadow-primary/20 w-full px-8 py-3">
                         Enrol Now
                       </Button>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </AnimatedSection>
-            ))}
+                </AnimatedSection>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -247,7 +190,7 @@ export function Academy() {
         <div className="max-w-3xl mx-auto px-6">
           <AnimatedSection>
             <h2 className="text-4xl md:text-5xl font-bold mb-10 font-heading">Ready to start your AI evaluation career?</h2>
-            <Button to="/checkout" className="!bg-white !text-primary hover:!bg-silver-light text-xl px-12 py-5 shadow-2xl font-bold">
+            <Button to="/register" className="!bg-white !text-primary hover:!bg-silver-light text-xl px-12 py-5 shadow-2xl font-bold">
               Enrol now
             </Button>
           </AnimatedSection>

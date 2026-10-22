@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
+import { DEFAULT_ACADEMY, normalizeAcademy, type AcademyConfig } from '../data/academyCatalog';
 
 interface CMSContextType {
   db: any;
@@ -33,4 +34,10 @@ export function CMSProvider({ children }: { children: React.ReactNode }) {
 
 export function useCMS() {
   return useContext(CMSContext);
+}
+
+// The editable enrolment page config (programmes, prices, GST, text), or the built-in defaults until an admin saves one.
+export function useAcademy(): AcademyConfig {
+  const { db } = useCMS();
+  return useMemo(() => normalizeAcademy(db?.academy) ?? DEFAULT_ACADEMY, [db]);
 }

@@ -5,10 +5,40 @@ import { SEO } from '../components/SEO';
 import { ShieldCheck, CheckCircle2, ArrowLeft, Loader2, CreditCard, Lock, Mail, User, Phone, MapPin, GraduationCap, Banknote, Calendar, Building, Tag, Globe } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { loadRazorpayScript } from '../lib/razorpay';
+import { fillText, normalizeAcademy, priceSelection, type AcademyConfig, type AcademyProgramme } from '../data/academyCatalog';
+import { useAcademy } from '../components/CMSContext';
+
+const inr = (n: number) =>
+  '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
 
 export function Checkout() {
   const { id } = useParams();
   const location = useLocation();
+  // /register is the university programme enrolment (programme + levels + GST); other routes enrol in a single course.
+  const isCatalog = location.pathname === '/register' ||
+    (location.pathname === '/checkout' && !new URLSearchParams(location.search).get('program'));
+  // Programmes, levels, prices, GST and page text are edited in the admin panel; the page-load copy is refreshed by the fetch below.
+  const contextAcademy = useAcademy();
+  const [fetchedAcademy, setFetchedAcademy] = useState<AcademyConfig | null>(null);
+  const academy = fetchedAcademy ?? contextAcademy;
+  const text = academy.page;
+  const gstRate = academy.gstRate;
+  // The Academy page links here with ?programme=<id> to preselect a programme.
+  const [catId, setCatId] = useState(() => new URLSearchParams(location.search).get('programme') ?? '');
+  const catProgramme = academy.programmes.find(p => p.id === catId) ?? academy.programmes[0];
+  const [pickedTrack, setPickedTrack] = useState('');
+  const catTrack = catProgramme.tracks.includes(pickedTrack) ? pickedTrack : catProgramme.tracks[0];
+  const [pickedLevels, setPickedLevels] = useState<number[]>([0]);
+  const catLevels = pickedLevels.filter(i => i < catProgramme.levels.length);
+  const catSelection = { id: catProgramme.id, track: catTrack, levels: catLevels };
+  const catPricing = isCatalog ? priceSelection(academy, catSelection) : null;
+  const selectCatalog = (p: AcademyProgramme) => {
+    setCatId(p.id);
+    setPickedTrack(p.tracks[0]);
+    setPickedLevels([0]);
+  };
+  const toggleCatLevel = (i: number) =>
+    setPickedLevels(prev => (prev.includes(i) ? prev.filter(l => l !== i) : [...prev, i].sort((a, b) => a - b)));
   const [academyPrograms, setAcademyPrograms] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -27,6 +57,7 @@ export function Checkout() {
         if (data && data.courses) {
           setAcademyPrograms(data.courses);
         }
+        setFetchedAcademy(normalizeAcademy(data?.academy));
         setIsLoading(false);
       })
       .catch((err) => {
@@ -39,7 +70,20 @@ export function Checkout() {
   const programId = id || searchParams.get('program');
 
   // Fallback to first program if not found, just so we don't white screen
-  const program = academyPrograms.find(p => p.id === programId) || (academyPrograms.length > 0 ? academyPrograms[0] : null);
+  const program = isCatalog
+    ? {
+        id: catPricing?.orderId ?? `academy:${catProgramme.id}`,
+        title: catPricing?.title ?? catProgramme.name,
+        price: inr(catPricing?.total ?? 0),
+        date: text.cohortText,
+        tracks: catProgramme.tracks,
+        highlights: [] as string[],
+        sessionsClosed: false,
+        sessions: [] as any[],
+        originalPrice: undefined as string | undefined,
+        offerLabel: undefined as string | undefined,
+      }
+    : academyPrograms.find(p => p.id === programId) || (academyPrograms.length > 0 ? academyPrograms[0] : null);
   // Sessions (venue + dates) are set per course in the admin panel; the value matches the server's format.
   const sessionOptions = (Array.isArray(program?.sessions) ? program.sessions : [])
     .map((session: any) => {
@@ -123,12 +167,7 @@ export function Checkout() {
     
     try {
       // Enrich formData with course context
-      const enrichedDetails = {
-        ...formData,
-        programId: program.id,
-        programTitle: program.title,
-        price: program.price,
-      };
+      if (isCatalog && !catPricing) throw new Error('Please choose at least one level before continuing.');
 
       let orderData = pendingOrder;
       if (!orderData) {
@@ -137,7 +176,7 @@ export function Checkout() {
         const orderRes = await fetch('/api/payment/create-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ programId: program.id, studentDetails: formData })
+          body: JSON.stringify({ programId: program.id, studentDetails: formData, ...(isCatalog ? { selection: catSelection } : {}) })
         });
         orderData = await orderRes.json();
         if (!orderRes.ok || !orderData.orderId) {
@@ -203,7 +242,7 @@ export function Checkout() {
         },
         notes: {
           address: formData.city,
-          track: formData.track
+          track: isCatalog ? catTrack : formData.track
         },
         theme: {
           color: '#5B4AF0'
@@ -226,7 +265,7 @@ export function Checkout() {
     }
   };
 
-  if (isLoading) return <div className="p-24 text-center">Loading secure checkout...</div>;
+  if (isLoading && !isCatalog) return <div className="p-24 text-center">Loading secure checkout...</div>;
   if (!program) return <div className="p-24 text-center">Program not found.</div>;
 
   if (step === 'success') {
@@ -372,12 +411,83 @@ export function Checkout() {
               </AnimatedSection>
             )}
             
+            {step === 'details' && isCatalog && (
+              <AnimatedSection className="mb-6">
+                <div className="bg-white border border-silver/20 rounded-sm shadow-md p-6 md:p-10 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
+                  <h2 className="text-3xl font-bold text-ink mb-2 font-heading">{text.pickTitle}</h2>
+                  <p className="text-ink/60 mb-8 pb-6 border-b border-silver/10 text-sm">{fillText(text.pickIntro, gstRate)}</p>
+
+                  <div role="radiogroup" aria-label="Programme" className="grid sm:grid-cols-3 gap-3">
+                    {academy.programmes.map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        role="radio"
+                        aria-checked={catProgramme.id === p.id}
+                        onClick={() => selectCatalog(p)}
+                        className={`text-left p-4 border rounded-sm transition-all flex flex-col gap-1.5 ${catProgramme.id === p.id ? 'border-primary bg-primary/5 shadow-sm' : 'border-silver/30 hover:border-primary/50 hover:bg-silver-light/50'}`}
+                      >
+                        {p.tag && <span className="text-[11px] font-mono font-bold tracking-widest text-primary">{p.tag}</span>}
+                        <span className="font-bold text-ink font-heading leading-snug">{p.name}</span>
+                        {p.line && <span className="text-sm font-semibold text-ink/80 leading-snug">{p.line}</span>}
+                        <span className="text-xs text-ink/60">{p.who}</span>
+                        <span className="mt-auto pt-2 text-sm text-ink">From <b className="text-primary font-heading">{inr(p.single ? p.price : Math.min(...p.levels.map(l => l.price)))}</b> + GST</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {catProgramme.tracks.length > 1 && (
+                    <div className="mt-8">
+                      <div className="block text-sm font-bold text-ink mb-3 flex items-center gap-2"><GraduationCap size={16} className="text-primary" /> {catProgramme.single ? text.singleTrackLabel : text.trackLabel} *</div>
+                      <div className="grid sm:grid-cols-2 gap-4">
+                        {catProgramme.tracks.map(t => (
+                          <label key={t} className={`flex items-center gap-3 p-4 border rounded-sm cursor-pointer transition-all ${catTrack === t ? 'border-primary bg-primary/5 text-primary font-bold shadow-sm' : 'border-silver/30 hover:border-primary/50 text-ink/80 hover:bg-silver-light/50'}`}>
+                            <input type="radio" name="catalogTrack" value={t} checked={catTrack === t} onChange={() => setPickedTrack(t)} className="w-4 h-4 text-primary border-silver/30 focus:ring-primary" />
+                            <span className="text-sm">{t}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {catProgramme.trackHint && <p className="text-xs text-ink/60 mt-2">{catProgramme.trackHint}</p>}
+                    </div>
+                  )}
+
+                  {catProgramme.single ? (
+                    catProgramme.startNote && <p className="mt-6 text-sm text-ink/60">{catProgramme.startNote}</p>
+                  ) : (
+                    <div className="mt-8">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div className="text-sm font-bold text-ink flex items-center gap-2"><Calendar size={16} className="text-primary" /> {text.levelsLabel} *</div>
+                        <button type="button" onClick={() => setPickedLevels(catProgramme.levels.map((_, i) => i))} className="text-xs font-bold text-primary border border-primary/30 rounded-sm px-3 py-1.5 hover:bg-primary/5 transition-colors">{text.selectAllLabel}</button>
+                      </div>
+                      <div className="border border-silver/30 rounded-sm overflow-hidden divide-y divide-silver/30">
+                        {catProgramme.levels.map((l, i) => (
+                          <label key={`${l.title}-${i}`} className={`flex items-center gap-4 p-4 cursor-pointer transition-colors ${catLevels.includes(i) ? 'bg-primary/5' : 'bg-white hover:bg-silver-light/50'}`}>
+                            <input type="checkbox" checked={catLevels.includes(i)} onChange={() => toggleCatLevel(i)} className="w-4 h-4 text-primary" />
+                            <span className="flex-1 min-w-0">
+                              <span className="block text-sm font-bold text-ink">Level {i + 1} · {l.title}</span>
+                              <span className="block text-xs text-ink/60 mt-0.5">{[l.hours, l.date || text.dateTbaText].filter(Boolean).join(' · ')}</span>
+                            </span>
+                            <span className="text-right whitespace-nowrap">
+                              <span className="block font-bold text-primary font-heading">{inr(l.price)}</span>
+                              {l.std > l.price && <span className="block text-xs text-silver line-through">{inr(l.std)}</span>}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {text.levelsHint && <p className="text-xs text-ink/60 mt-2">{text.levelsHint}</p>}
+                    </div>
+                  )}
+                </div>
+              </AnimatedSection>
+            )}
+
             {step === 'details' && (
               <AnimatedSection>
                 <div className="bg-white border border-silver/20 rounded-sm shadow-md p-6 md:p-10 relative overflow-hidden">
                   <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
-                  <h2 className="text-3xl font-bold text-ink mb-2 font-heading">Enrolment Details</h2>
-                  <p className="text-ink/60 mb-8 pb-6 border-b border-silver/10 text-sm">Please fill out your details. This information will be used for your official tax invoice and academy certificate.</p>
+                  <h2 className="text-3xl font-bold text-ink mb-2 font-heading">{isCatalog ? text.detailsTitle : 'Enrolment Details'}</h2>
+                  <p className="text-ink/60 mb-8 pb-6 border-b border-silver/10 text-sm">{isCatalog ? text.detailsIntro : 'Please fill out your details. This information will be used for your official tax invoice and academy certificate.'}</p>
                   
                   <form onSubmit={handleDetailsSubmit} onInvalidCapture={() => setCheckoutError('Please complete the required fields above before continuing to Razorpay.')} className="space-y-6">
                     <div className="grid md:grid-cols-2 gap-6">
@@ -393,8 +503,8 @@ export function Checkout() {
 
                     <div className="grid md:grid-cols-2 gap-6">
                       <div>
-                        <label className="block text-sm font-bold text-ink mb-2 flex items-center gap-2"><GraduationCap size={16} className="text-primary" /> Education</label>
-                        <input type="text" value={formData.education} onChange={e => setFormData({...formData, education: e.target.value})} className="w-full px-4 py-3 bg-silver-light/20 border border-silver/30 rounded-sm text-base focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary focus:bg-white transition-colors shadow-inner" placeholder="B.Tech, M.Sc, etc." />
+                        <label className="block text-sm font-bold text-ink mb-2 flex items-center gap-2"><GraduationCap size={16} className="text-primary" /> {isCatalog ? `${text.educationLabel} *` : 'Education'}</label>
+                        <input required={isCatalog} type="text" value={formData.education} onChange={e => setFormData({...formData, education: e.target.value})} className="w-full px-4 py-3 bg-silver-light/20 border border-silver/30 rounded-sm text-base focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary focus:bg-white transition-colors shadow-inner" placeholder={isCatalog ? 'e.g. B.Tech, Computer Science, Year 2' : 'B.Tech, M.Sc, etc.'} />
                       </div>
                       <div>
                         <label className="block text-sm font-bold text-ink mb-2 flex items-center gap-2"><Building size={16} className="text-primary" /> College / Organization *</label>
@@ -446,7 +556,7 @@ export function Checkout() {
                       <input type="text" value={formData.referredBy} onChange={e => setFormData({...formData, referredBy: e.target.value})} className="w-full px-4 py-3 bg-silver-light/20 border border-silver/30 rounded-sm text-base focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary focus:bg-white transition-colors shadow-inner" placeholder="Name or source" />
                     </div>
 
-                    <div className="pt-4 border-t border-silver/10">
+                    {!isCatalog && <div className="pt-4 border-t border-silver/10">
                       <label className="block text-sm font-bold text-ink mb-3">Interests</label>
                       <div className="grid sm:grid-cols-3 gap-3">
                         {[['onSiteWorkshop', 'On-site workshop'], ['demo', 'Demo'], ['bootcamp', 'Boot camp']].map(([key, label]) => (
@@ -456,9 +566,9 @@ export function Checkout() {
                           </label>
                         ))}
                       </div>
-                    </div>
+                    </div>}
 
-                    <div className="pt-4 border-t border-silver/10">
+                    {!isCatalog && <div className="pt-4 border-t border-silver/10">
                       <label className="block text-sm font-bold text-ink mb-3 flex items-center gap-2"><GraduationCap size={16} className="text-primary" /> Track preference *</label>
                       <div className="grid sm:grid-cols-2 gap-4">
                         {program.tracks.map((track: string) => (
@@ -475,7 +585,7 @@ export function Checkout() {
                           </label>
                         ))}
                       </div>
-                    </div>
+                    </div>}
 
                     {sessionOptions.length > 0 && (
                       <div className="pt-4 border-t border-silver/10">
@@ -512,8 +622,8 @@ export function Checkout() {
 
                     <div className="pt-6 mt-6 border-t border-silver/10">
                       {checkoutError && <p role="alert" className="mb-4 rounded-sm border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{checkoutError}</p>}
-                      <button type="submit" disabled={Boolean(program.sessionsClosed)} className="w-full py-4 bg-primary text-white rounded-sm font-bold hover:bg-primary-dark transition-colors shadow-xl shadow-primary/20 flex items-center justify-center gap-2 text-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                        Continue to Razorpay <ArrowLeft size={18} className="rotate-180" />
+                      <button type="submit" disabled={Boolean(program.sessionsClosed) || (isCatalog && !catPricing)} className="w-full py-4 bg-primary text-white rounded-sm font-bold hover:bg-primary-dark transition-colors shadow-xl shadow-primary/20 flex items-center justify-center gap-2 text-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                        {isCatalog ? text.continueButton : 'Continue to Razorpay'} <ArrowLeft size={18} className="rotate-180" />
                       </button>
                     </div>
                   </form>
@@ -586,7 +696,7 @@ export function Checkout() {
             <AnimatedSection delay={0.1}>
               <div className="bg-white border border-silver/20 rounded-sm shadow-md p-8 sticky top-28">
                 <h3 className="font-bold text-ink mb-6 font-heading border-b border-silver/10 pb-4 text-xl flex items-center gap-2">
-                  <Banknote size={20} className="text-primary" /> Order Summary
+                  <Banknote size={20} className="text-primary" /> {isCatalog ? text.summaryTitle : 'Order Summary'}
                 </h3>
                 <div className="pb-6 mb-6 border-b border-silver/10 space-y-5">
                   <div className="font-bold text-ink text-xl leading-tight font-heading">{program.title}</div>
@@ -603,7 +713,7 @@ export function Checkout() {
                     <GraduationCap size={18} className="text-primary mt-0.5" />
                     <div>
                       <div className="text-xs text-ink/50 uppercase tracking-wider font-mono mb-1 font-bold">Selected Track</div>
-                      <div className="text-sm font-medium text-ink">{formData.track || 'Pending Selection'}</div>
+                      <div className="text-sm font-medium text-ink">{(isCatalog ? catTrack : formData.track) || 'Pending Selection'}</div>
                     </div>
                   </div>
 
@@ -618,7 +728,7 @@ export function Checkout() {
                   )}
                 </div>
 
-                <div className="bg-silver-light/30 border border-silver/10 rounded-sm p-5 mb-6">
+                {!isCatalog && <div className="bg-silver-light/30 border border-silver/10 rounded-sm p-5 mb-6">
                   <h4 className="text-xs font-bold text-ink uppercase tracking-wider mb-4 border-b border-silver/10 pb-2">What's Included</h4>
                   <ul className="space-y-3">
                     {program.highlights.slice(0, 3).map((highlight, idx) => (
@@ -628,16 +738,35 @@ export function Checkout() {
                       </li>
                     ))}
                   </ul>
-                </div>
-                
-                <div className="mb-6">
+                </div>}
+
+                {!isCatalog && <div className="mb-6">
                   <label className="block text-xs font-bold text-ink mb-2 uppercase tracking-wider flex items-center gap-2"><Tag size={12} className="text-primary" /> Coupon Code</label>
                   <div className="flex gap-2">
                     <input type="text" value={formData.coupon} onChange={e => setFormData({...formData, coupon: e.target.value})} className="flex-1 px-3 py-2 bg-silver-light/20 border border-silver/30 rounded-sm text-sm focus:outline-none focus:border-primary focus:bg-white" placeholder="Optional" />
                     <button className="px-4 py-2 bg-silver-light text-ink text-sm font-bold rounded-sm border border-silver/30 hover:bg-silver/10 transition-colors">Apply</button>
                   </div>
-                </div>
+                </div>}
 
+                {isCatalog ? (
+                  <div className="mb-6 border-t border-silver/20 pt-5">
+                    <div className="space-y-2 text-sm tabular-nums">
+                      {(catPricing?.items.length ? catPricing.items : [['No level selected', 0] as [string, number]]).map(([label, value]) => (
+                        <div key={label} className="flex justify-between gap-3"><span className="text-ink/70 min-w-0">{label}</span><span>{inr(value)}</span></div>
+                      ))}
+                      <div className="flex justify-between gap-3 pt-2 border-t border-silver/10"><span className="text-ink/70">{text.courseFeeLabel}</span><span>{inr(catPricing?.sub ?? 0)}</span></div>
+                      <div className="flex justify-between gap-3"><span className="text-ink/70">{fillText(text.gstLabel, gstRate)}</span><span>{inr(catPricing?.gst ?? 0)}</span></div>
+                    </div>
+                    <div className="flex items-baseline justify-between mt-4 pt-4 border-t border-silver/20">
+                      <span className="text-sm text-ink/70">{fillText(text.totalLabel, gstRate)}</span>
+                      <span className="text-2xl font-bold text-primary font-heading">{inr(catPricing?.total ?? 0)}</span>
+                    </div>
+                    {catPricing && catPricing.std > catPricing.sub && (
+                      <div className="mt-2 text-sm font-semibold text-green-700">{fillText(text.saveText, gstRate, inr(catPricing.std - catPricing.sub))}</div>
+                    )}
+                    {text.priceNote && <p className="text-xs text-ink/50 mt-3">{fillText(text.priceNote, gstRate)}</p>}
+                  </div>
+                ) : (<>
                 <div className="py-5 flex items-center justify-between font-bold text-2xl text-ink border-t border-silver/20">
                   <span>Total</span>
                   <span className="text-right">
@@ -651,10 +780,11 @@ export function Checkout() {
                   </span>
                 </div>
                 <div className="text-xs text-ink/50 text-right -mt-4 mb-6">(Inclusive of all applicable taxes)</div>
-                
+                </>)}
+
                 <div className="flex items-start gap-3 text-xs text-ink/60 leading-relaxed bg-silver-light/50 p-4 rounded-sm border border-silver/20">
                   <ShieldCheck size={20} className="flex-shrink-0 text-primary" />
-                  <span>By completing this purchase, you consent to our Terms of Service and Refund Policy. No card data is stored on our servers.</span>
+                  <span>{isCatalog ? text.consentText : 'By completing this purchase, you consent to our Terms of Service and Refund Policy. No card data is stored on our servers.'}</span>
                 </div>
               </div>
             </AnimatedSection>

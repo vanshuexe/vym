@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { AnimatedSection } from '../components/ui/AnimatedSection';
 import { Lock, LogOut, FileText, Database, Settings, GraduationCap, CheckCircle2, ShieldAlert, CreditCard, User, Mail, Phone, MapPin, BookOpen, Building2, Hash, IndianRupee, Clock, Filter, Calendar, Plus, Trash2 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
+import { AcademyEditor } from '../components/AcademyEditor';
+import { normalizeAcademy } from '../data/academyCatalog';
 
 // Course prices are display strings such as "INR 2,499"; read the first number in them.
 const parsePrice = (value: unknown) => {
@@ -15,7 +17,7 @@ export function Admin() {
   const [error, setError] = useState('');
   
   const [db, setDb] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'pages' | 'courses' | 'media' | 'enquiries' | 'orders' | 'invoices' | 'settings' | 'registrations'>('pages');
+  const [activeTab, setActiveTab] = useState<'pages' | 'courses' | 'academy' | 'media' | 'enquiries' | 'orders' | 'invoices' | 'settings' | 'registrations'>('pages');
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
 
@@ -74,7 +76,7 @@ export function Admin() {
           'Authorization': `Bearer ${token}`
         },
         // Only the CMS-editable sections; orders, invoices and users are managed by the server.
-        body: JSON.stringify({ pages: db.pages, courses: db.courses, media: db.media, settings: db.settings })
+        body: JSON.stringify({ pages: db.pages, courses: db.courses, media: db.media, settings: db.settings, academy: db.academy })
       });
       if (res.ok) {
         setSaveMessage('Saved successfully');
@@ -156,6 +158,9 @@ export function Admin() {
           <button onClick={() => setActiveTab('courses')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-sm text-left transition-colors ${activeTab === 'courses' ? 'bg-primary text-white' : 'text-silver hover:bg-ink-light'}`}>
             <GraduationCap size={18} /> Academy Courses
           </button>
+          <button onClick={() => setActiveTab('academy')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-sm text-left transition-colors ${activeTab === 'academy' ? 'bg-primary text-white' : 'text-silver hover:bg-ink-light'}`}>
+            <IndianRupee size={18} /> Enrolment Page
+          </button>
           <button onClick={() => setActiveTab('media')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-sm text-left transition-colors ${activeTab === 'media' ? 'bg-primary text-white' : 'text-silver hover:bg-ink-light'}`}>
             <FileText size={18} /> Media & Posts
           </button>
@@ -187,8 +192,8 @@ export function Admin() {
           <h2 className="text-3xl font-bold font-heading text-ink capitalize">{activeTab} Management</h2>
           <div className="flex items-center gap-4">
             {saveMessage && <span className="text-sm font-bold text-green-600 flex items-center gap-1"><CheckCircle2 size={16}/> {saveMessage}</span>}
-            {(activeTab === 'pages' || activeTab === 'courses' || activeTab === 'media' || activeTab === 'settings') && (
-              <button onClick={handleSave} disabled={isSaving} className="px-6 py-2 bg-ink text-white font-bold rounded-sm shadow-lg hover:bg-primary transition-colors disabled:opacity-50">
+            {(activeTab === 'pages' || activeTab === 'courses' || activeTab === 'academy' || activeTab === 'media' || activeTab === 'settings') && (
+              <button onClick={handleSave} disabled={isSaving || (activeTab === 'academy' && normalizeAcademy(db.academy) === null)} className="px-6 py-2 bg-ink text-white font-bold rounded-sm shadow-lg hover:bg-primary transition-colors disabled:opacity-50">
                 {isSaving ? 'Saving...' : 'Save Database'}
               </button>
             )}
@@ -381,6 +386,11 @@ export function Admin() {
             </div>
           );
         })()}
+
+        {/* Enrolment page (programmes, levels, prices, GST, text) */}
+        {activeTab === 'academy' && db.academy && (
+          <AcademyEditor academy={db.academy} onChange={academy => setDb({ ...db, academy })} />
+        )}
 
         {/* Media Editor */}
         {activeTab === 'media' && (

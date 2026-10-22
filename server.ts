@@ -7,6 +7,7 @@ import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import fs from 'fs-extra';
 import jwt from 'jsonwebtoken';
+import { DEFAULT_ACADEMY, normalizeAcademy, priceSelection } from './src/data/academyCatalog';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 8980;
@@ -86,6 +87,9 @@ const hmacMatches = (payload: string, secret: string, signatureHex: unknown) => 
   const provided = Buffer.from(String(signatureHex || ''), 'hex');
   return expected.length === provided.length && crypto.timingSafeEqual(expected, provided);
 };
+
+// The editable enrolment page (programmes, levels, prices, GST, text); falls back to the built-in defaults until an admin saves one.
+const getAcademy = (db: any) => normalizeAcademy(db?.academy) ?? DEFAULT_ACADEMY;
 
 const readDB = async () => {
   try {
@@ -393,6 +397,7 @@ app.get('/api/cms/data', asyncHandler(async (req, res) => {
   if (isAdmin) {
     return res.json({
       ...db,
+      academy: getAcademy(db),
       enquiries: db.enquiries || [],
       invoices: db.invoices || [],
       users: (db.users || []).map(({ password, ...user }: any) => user)
@@ -400,6 +405,7 @@ app.get('/api/cms/data', asyncHandler(async (req, res) => {
   }
   res.json({
     pages: db.pages || {},
+    academy: getAcademy(db),
     courses: (db.courses || []).map(publicCourse),
     media: (db.media || []).filter((post: any) => post.status !== 'Draft')
   });
@@ -411,7 +417,8 @@ const CMS_VALIDATORS: Record<string, (value: unknown) => boolean> = {
   courses: value => Array.isArray(value) && value.every(course =>
     isPlainObject(course) && typeof course.id === 'string' && course.id.length > 0 && typeof course.price === 'string' &&
     (course.sessions === undefined || (Array.isArray(course.sessions) && course.sessions.every(isPlainObject)))),
-  media: value => Array.isArray(value) && value.every(isPlainObject)
+  media: value => Array.isArray(value) && value.every(isPlainObject),
+  academy: value => normalizeAcademy(value) !== null
 };
 
 app.post('/api/cms/data', authenticate, asyncHandler(async (req, res) => {
@@ -421,7 +428,7 @@ app.post('/api/cms/data', authenticate, asyncHandler(async (req, res) => {
   const invalid = updates.find(key => !CMS_VALIDATORS[key](req.body[key]));
   if (invalid) return res.status(400).json({ error: `Invalid ${invalid} data` });
   await mutateDB(db => {
-    for (const key of updates) db[key] = req.body[key];
+    for (const key of updates) db[key] = key === 'academy' ? normalizeAcademy(req.body[key]) : req.body[key];
   });
   res.json({ success: true });
 }));
@@ -659,9 +666,15 @@ app.post('/api/payment/create-order', orderLimiter, asyncHandler(async (req, res
   }
 
   const db = await readDB();
-  const course = (db.courses || []).find((entry: any) => entry.id === programId);
-  if (!course) return res.status(404).json({ error: 'Selected program was not found.' });
-  const amountINR = parsePriceINR(course.price);
+  // University programmes are priced from the shared catalog (levels + 18% GST); everything else from the admin-edited courses.
+  const academy = getAcademy(db);
+  const catalog = req.body.selection ? priceSelection(academy, req.body.selection) : null;
+  if (req.body.selection && !catalog) {
+    return res.status(400).json({ error: 'Please choose a valid programme, track and level.' });
+  }
+  const course = catalog ? null : (db.courses || []).find((entry: any) => entry.id === programId);
+  if (!catalog && !course) return res.status(404).json({ error: 'Selected program was not found.' });
+  const amountINR = catalog ? catalog.total : parsePriceINR(course.price);
   if (!Number.isFinite(amountINR) || amountINR < 1) return res.status(400).json({ error: 'Program price is invalid.' });
 
   const details: Record<string, string | boolean> = {
@@ -669,23 +682,33 @@ app.post('/api/payment/create-order', orderLimiter, asyncHandler(async (req, res
     address: cleanText(studentDetails?.address, 500),
     ...pickFlags(studentDetails, ['onSiteWorkshop', 'demo', 'bootcamp'])
   };
-  const required = ['name', 'phone', 'address', 'city', 'college', 'track'];
+  if (catalog) {
+    details.track = catalog.track;
+    details.onSiteWorkshop = false;
+    details.demo = false;
+    details.bootcamp = catalog.programme.single;
+    delete details.session;
+  }
+  const required = ['name', 'phone', 'address', 'city', 'college', 'track', ...(catalog ? ['education'] : [])];
   if (required.some(key => !details[key]) ||
       String(studentDetails?.email || '').trim().toLowerCase() !== userEmail) {
     return res.status(400).json({ error: 'Complete all required enrolment details using the email address on your account.' });
   }
-  if (Array.isArray(course.tracks) && course.tracks.length > 0 && !course.tracks.includes(details.track)) {
-    return res.status(400).json({ error: 'Please choose one of the available tracks for this program.' });
+  if (course) {
+    if (Array.isArray(course.tracks) && course.tracks.length > 0 && !course.tracks.includes(details.track)) {
+      return res.status(400).json({ error: 'Please choose one of the available tracks for this program.' });
+    }
+    const configuredSessions = (Array.isArray(course.sessions) ? course.sessions : []).filter((session: any) => formatSession(session));
+    const openSessions = configuredSessions.filter((session: any) => isSessionOpen(session)).map(formatSession);
+    if (configuredSessions.length > 0 && openSessions.length === 0) {
+      return res.status(400).json({ error: 'All sessions for this program have ended. New dates will be announced soon.' });
+    }
+    if (openSessions.length > 0 && !openSessions.includes(details.session)) {
+      return res.status(400).json({ error: 'Please choose one of the available sessions for this program.' });
+    }
+    if (configuredSessions.length === 0) delete details.session;
   }
-  const configuredSessions = (Array.isArray(course.sessions) ? course.sessions : []).filter((session: any) => formatSession(session));
-  const openSessions = configuredSessions.filter((session: any) => isSessionOpen(session)).map(formatSession);
-  if (configuredSessions.length > 0 && openSessions.length === 0) {
-    return res.status(400).json({ error: 'All sessions for this program have ended. New dates will be announced soon.' });
-  }
-  if (openSessions.length > 0 && !openSessions.includes(details.session)) {
-    return res.status(400).json({ error: 'Please choose one of the available sessions for this program.' });
-  }
-  if (configuredSessions.length === 0) delete details.session;
+  const orderProgramId = catalog ? catalog.orderId : programId;
 
   const invoiceId = 'INV-' + crypto.randomUUID();
   let order: any;
@@ -694,7 +717,7 @@ app.post('/api/payment/create-order', orderLimiter, asyncHandler(async (req, res
       amount: toPaise(amountINR),
       currency: 'INR',
       receipt: invoiceId.slice(0, 40), // Razorpay rejects receipts longer than 40 characters
-      notes: { invoiceId, programId: String(programId) }
+      notes: { invoiceId, programId: String(orderProgramId) }
     });
   } catch (error: any) {
     console.error('[payments] Razorpay order creation failed:', describeRazorpayError(error));
@@ -711,8 +734,9 @@ app.post('/api/payment/create-order', orderLimiter, asyncHandler(async (req, res
       id: invoiceId,
       invoiceNumber: nextInvoiceNumber,
       orderId: order.id,
-      programId,
-      programTitle: course.title || programId,
+      programId: orderProgramId,
+      programTitle: catalog ? catalog.title : course.title || programId,
+      ...(catalog ? { feeBreakdown: { courseFee: catalog.sub, gst: catalog.gst, gstRate: academy.gstRate } } : {}),
       customer: { ...details, email: userEmail },
       amountINR,
       currency: 'INR',

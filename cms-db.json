@@ -5,7 +5,7 @@
       "title": "One-day Executive Workshop",
       "desc": "A high-intensity, focused masterclass designed to rapidly upskill teams and individuals in AI quality fundamentals, risk assessment, and basic prompt engineering without the time commitment of a full bootcamp.",
       "duration": "3-4 hours live",
-      "price": "INR 300",
+      "price": "INR 999",
       "originalPrice": "INR 4,999",
       "offerLabel": "Introductory offer · 50% off",
       "date": "Next cohort: Starts soon",
@@ -410,6 +410,43 @@
       "currency": "INR",
       "status": "Unpaid",
       "createdAt": "2026-10-05T12:15:23.160Z",
+      "paidAt": null,
+      "paymentId": null
+    },
+    {
+      "id": "INV-8439982d-98b7-4ddd-a916-1fa281973ea2",
+      "invoiceNumber": "VM-2026-00011",
+      "orderId": "order_TqzGYWcg3tUx3o",
+      "programId": "academy:s1",
+      "programTitle": "AI Ready, Technical track, Level 1",
+      "feeBreakdown": {
+        "courseFee": 199,
+        "gst": 35.82,
+        "gstRate": 0.18
+      },
+      "customer": {
+        "name": "mbv",
+        "phone": "8779909890",
+        "address": "9009",
+        "city": "h",
+        "state": "jbjb",
+        "country": "hjghyg",
+        "college": "hghg",
+        "organization": "hghg",
+        "education": "hfgh",
+        "role": "Student",
+        "referredBy": "hgjhg",
+        "track": "Technical",
+        "coupon": "",
+        "onSiteWorkshop": false,
+        "demo": false,
+        "bootcamp": false,
+        "email": "admin@gmail.com"
+      },
+      "amountINR": 234.82,
+      "currency": "INR",
+      "status": "Unpaid",
+      "createdAt": "2026-10-22T14:29:12.185Z",
       "paidAt": null,
       "paymentId": null
     }
