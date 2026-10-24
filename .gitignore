@@ -6,3 +6,6 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# local database backups (customer data)
+backups/

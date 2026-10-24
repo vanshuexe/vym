@@ -8,6 +8,7 @@ import crypto from 'crypto';
 import fs from 'fs-extra';
 import jwt from 'jsonwebtoken';
 import { DEFAULT_ACADEMY, normalizeAcademy, priceSelection } from './src/data/academyCatalog';
+import { createSupabaseStore } from './server/supabaseStore';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 8980;
@@ -23,6 +24,14 @@ app.use(express.json({
 }));
 
 const DB_PATH = path.resolve(process.env.CMS_DB_PATH || path.join(process.cwd(), 'cms-db.json'));
+
+// Storage: Supabase when SUPABASE_URL and SUPABASE_SECRET_KEY are set, otherwise the local JSON file (DB_PATH).
+// DB_BACKEND=json forces the file even when Supabase is configured. If Supabase is configured but unreachable the server
+// refuses to start rather than quietly falling back to a stale file, which would split the data between two places.
+const isRealValue = (value: string | undefined) => Boolean(value) && !/your|placeholder|^my_|change-this|replace-with/i.test(String(value));
+const useSupabase = process.env.DB_BACKEND !== 'json' && String(process.env.SUPABASE_URL || '').startsWith('https://') &&
+  isRealValue(process.env.SUPABASE_URL) && isRealValue(process.env.SUPABASE_SECRET_KEY);
+const store = useSupabase ? createSupabaseStore(process.env.SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!) : null;
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
   console.warn('[auth] JWT_SECRET is not set; using a random secret. Everyone is signed out whenever the server restarts.');
   return crypto.randomBytes(48).toString('base64url');
@@ -92,6 +101,7 @@ const hmacMatches = (payload: string, secret: string, signatureHex: unknown) => 
 const getAcademy = (db: any) => normalizeAcademy(db?.academy) ?? DEFAULT_ACADEMY;
 
 const readDB = async () => {
+  if (store) return store.read();
   try {
     const data = await fs.readFile(DB_PATH, 'utf-8');
     return JSON.parse(data);
@@ -110,8 +120,10 @@ let mutationQueue: Promise<unknown> = Promise.resolve();
 const mutateDB = <T>(mutator: (db: any) => Promise<T> | T): Promise<T> => {
   const task = mutationQueue.then(async () => {
     const db = await readDB();
+    // Supabase saves only what changed, so keep a copy of the database as it was read.
+    const before = store ? structuredClone(db) : null;
     const result = await mutator(db);
-    await writeDB(db);
+    if (store) await store.write(before, db); else await writeDB(db);
     return result;
   });
   mutationQueue = task.catch(() => undefined);
@@ -846,6 +858,12 @@ app.use((err: any, req: any, res: any, _next: any) => {
 
 // Vite Middleware for Full-Stack App
 async function startServer() {
+  if (store) {
+    await store.ping();
+    console.log(`[db] Using Supabase (${store.host})`);
+  } else {
+    console.log(`[db] Using local file ${path.basename(DB_PATH)}${process.env.DB_BACKEND === 'json' ? ' (DB_BACKEND=json)' : ' (Supabase is not configured)'}`);
+  }
   await migratePlaintextPasswords().catch(error => console.error('[auth] Could not hash legacy passwords:', error));
   void checkRazorpayCredentials();
 
