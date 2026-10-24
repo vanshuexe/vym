@@ -162,6 +162,12 @@ export function Layout() {
               </ul>
             </div>
           </div>
+          <div className="mb-8 pt-8 border-t border-white/10">
+            <h4 className="font-heading font-semibold text-sm mb-3">Project Completion and Handover</h4>
+            <p className="text-xs text-white/60 leading-relaxed max-w-5xl">
+              Development is scheduled to conclude on 21 October 2026. After development is complete, the developer will hand over all project files and the project database to Mahadev finance account. From the date the handover is completed, the client is responsible for operating, maintaining, securing, and managing the website and its content, accounts, and transactions. To the extent permitted by applicable law and subject to any written agreement, the developer is not responsible for fraud, unlawful activity, or other actions arising from the client's or other users' use of the website after handover. This statement does not exclude liability that cannot legally be excluded.
+            </p>
+          </div>
           <div className="pt-8 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-white/50">
             <p>&copy; {new Date().getFullYear()} Vyomatrix.ai. All rights reserved.</p>
             <div className="flex items-center gap-4">
